@@ -14,6 +14,7 @@ namespace AsmTool
 		UInt32 LoadAsmIODriver();
 		UInt32 UnloadAsmIODriver();
 		UInt32 ReadMEM(UInt32 address, UInt32 size, IntPtr bufPtr);
+		UInt32 WriteMEM(UInt32 address, UInt32 size, IntPtr bufPtr);
 		byte PCI_Read_BYTE(UInt32 busNumber, UInt32 deviceNumber, UInt32 functionNumber, UInt32 offset);
 		UInt32 PCI_Write_BYTE(UInt32 busNumber, UInt32 deviceNumber, UInt32 functionNumber, UInt32 offset, byte value);
 		UInt32 PCI_Read_DWORD(UInt32 busNumber, UInt32 deviceNumber, UInt32 functionNumber, UInt32 offset);
