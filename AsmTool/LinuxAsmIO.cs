@@ -70,6 +70,10 @@ namespace AsmTool
 			throw new NotImplementedException();
 		}
 
+		public uint WriteMEM(uint address, uint size, IntPtr bufPtr) {
+			throw new NotImplementedException();
+		}
+
 		public uint UnloadAsmIODriver() {
 			return 1;
 		}

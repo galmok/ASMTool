@@ -39,14 +39,40 @@ namespace AsmTool
 			this.prb = new Prober(io);
 
 			Console.WriteLine("Scanning for ASMedia ICs...");
-			if (!prb.FindByProduct(PID_2142, out pcidev) && !prb.FindByProduct(PID_3142, out pcidev))
+			PCIAddress addr;
+			if (!prb.FindByProduct(PID_2142, out addr) && !prb.FindByProduct(PID_3142, out addr))
 				throw new Exception($"No ASMedia device detected!");
 
 			Console.WriteLine("Found ASMedia IC!");
+			pcidev = addr;
 			uint barValue = PCIReadWord(0x10);
 			Console.WriteLine($"BAR: {barValue:X8}");
 
 			this.bar = new PCIBar(barValue);
+		}
+
+		public AsmDevice(IAsmIO io, PCIAddress pcidev) {
+			this.io = io;
+			this.prb = new Prober(io);
+			this.pcidev = pcidev;
+
+			uint barValue = PCIReadWord(0x10);
+			Console.WriteLine($"BAR: {barValue:X8}");
+
+			this.bar = new PCIBar(barValue);
+		}
+
+		/// <summary>
+		/// Scans for a USB ASMedia controller (0x2142/0x3142) and returns a device, or
+		/// <c>null</c> when none is present.
+		/// </summary>
+		public static AsmDevice? TryCreate(IAsmIO io) {
+			var prb = new Prober(io);
+			PCIAddress addr;
+			if (prb.FindByProduct(PID_2142, out addr) || prb.FindByProduct(PID_3142, out addr)) {
+				return new AsmDevice(io, addr);
+			}
+			return null;
 		}
 
 		public AsmMemory NewMemoryMap(uint offset, uint size) {

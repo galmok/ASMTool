@@ -59,5 +59,45 @@ namespace AsmTool
 			};
 			return false;
 		}
+
+		/// <summary>
+		/// Scans the PCI space once and returns the first function whose vendor/device id
+		/// matches <paramref name="vid"/> and any of the PIDs in <paramref name="pids"/>.
+		/// </summary>
+		public bool FindByProductList(uint[] pids, uint vid, out PCIAddress addr, out uint matchedPid) {
+			matchedPid = 0;
+			for (uint i = 0; i < PCI_BUS_MAX; i++) {
+				for (uint j = 0; j < PCI_DEV_MAX; j++) {
+					for (uint k = 0; k < PCI_FUNC_MAX; k++) {
+						uint ident = io.PCI_Read_DWORD(i, j, k, 0);
+						if (ident == 0xFFFFFFFF) {
+							continue;
+						}
+						uint dev_pid = (ident >> 16) & 0xFFFF;
+						uint dev_vid = (ident & 0xFFFF);
+						if (dev_vid != vid) {
+							continue;
+						}
+						foreach (var pid in pids) {
+							if (dev_pid == pid) {
+								addr = new PCIAddress() {
+									Bus = i,
+									Device = j,
+									Function = k
+								};
+								matchedPid = pid;
+								return true;
+							}
+						}
+					}
+				}
+			}
+			addr = new PCIAddress() {
+				Bus = uint.MaxValue,
+				Device = uint.MaxValue,
+				Function = uint.MaxValue
+			};
+			return false;
+		}
 	}
 }
