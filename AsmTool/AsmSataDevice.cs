@@ -482,5 +482,53 @@ namespace AsmTool
 				}
 			}
 		}
+
+		/// <summary>
+		/// Reads the SPI flash and returns the firmware version string (e.g.
+		/// "241025-0000-05"), or <c>null</c> when the version block is not present.
+		/// The flash is read in chunks and searched as it is read, so the read stops
+		/// as soon as the version block is located.
+		/// </summary>
+		public string? ReadFirmwareVersion(int? sizeOverride = null) {
+			if (!opened) {
+				Open();
+			}
+			if (!granted) {
+				if (!RequestGrant()) {
+					throw new Exception("Failed to obtain the SPI control grant");
+				}
+			}
+
+			int size = sizeOverride
+				?? (DetectChip()?.CapacityKb ?? AsmSataChipTable.UnknownCapacityKb) * 1024;
+
+			// Retain enough trailing bytes that the version block (version + anchor)
+			// cannot be split across a chunk boundary.
+			int keep = AsmSataFwVersion.Anchor.Length + AsmSataFwVersion.VersionLen - 1;
+			byte[] tail = Array.Empty<byte>();
+			byte[] scratch = new byte[CHUNK_SIZE];
+
+			uint offset = 0;
+			while (offset < (uint)size) {
+				int n = Math.Min(CHUNK_SIZE, size - (int)offset);
+				ReadRegion(offset, n, scratch);
+
+				byte[] cand = new byte[tail.Length + n];
+				Buffer.BlockCopy(tail, 0, cand, 0, tail.Length);
+				Buffer.BlockCopy(scratch, 0, cand, tail.Length, n);
+
+				int anchor = AsmSataFwVersion.IndexOf(cand, cand.Length, AsmSataFwVersion.Anchor);
+				if (anchor >= AsmSataFwVersion.VersionLen) {
+					return AsmSataFwVersion.Extract(cand, cand.Length);
+				}
+
+				int tailLen = Math.Min(keep, cand.Length);
+				tail = new byte[tailLen];
+				Buffer.BlockCopy(cand, cand.Length - tailLen, tail, 0, tailLen);
+
+				offset += (uint)n;
+			}
+			return null;
+		}
 	}
 }
