@@ -32,16 +32,22 @@ Run the executable with a command. The controller family (SATA / USB) is auto-de
 | Command | Description |
 |---------|-------------|
 | `flash_read [out.bin]` | Dump the SPI flash firmware. Works on both SATA (ASM116x) and USB (ASM2142/3142) controllers. Defaults to `dump.bin`. |
-| `flash_info` | Print the detected SATA flash chip (name, JEDEC ID, capacity). SATA (ASM116x) only. |
+| `flash_info` | Print the detected SATA flash chip (name, JEDEC ID, capacity) and the firmware version read from the flash. SATA (ASM116x) only. |
+| `rom_version <firmware.rom>` | Print the firmware version embedded in a SATA ROM image file. No driver or admin rights required. |
 | `fw_info <firmware.rom>` | Inspect a USB firmware image. |
 | `fw_set_type <firmware.rom> <2142\|3142>` | Patch the chip type of a USB firmware image. |
 | `mem_read` | Dump 128 KB of USB controller memory to `mem.bin`. |
 
+The SATA firmware version is reported as `YYMMDD-build-rev` (for example `241025-0000-05`).
+
 Examples:
 
 ```
-# Detect the flash chip on a SATA controller
+# Detect the flash chip and firmware version on a SATA controller
 ASMTool flash_info
+
+# Print the firmware version of a ROM file (no driver / admin needed)
+ASMTool rom_version ASM1166_10250005.ROM
 
 # Dump the full SPI flash from a SATA controller
 ASMTool flash_read sata.bin

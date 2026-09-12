@@ -19,6 +19,15 @@ namespace AsmTool
 	class Program
 	{
 		static void Main(string[] args) {
+			string cmd = args.Length > 0 ? args[0] : "flash_read";
+
+			// File-only command: reads a ROM image directly, so it needs neither the
+			// ASMedia driver nor elevated privileges.
+			if (cmd == "rom_version") {
+				RunRomVersion(args);
+				return;
+			}
+
 			IAsmIO io = AsmIOFactory.GetAsmIO();
 
 			Console.WriteLine("Unloading ASM Driver...");
@@ -29,7 +38,6 @@ namespace AsmTool
 				return;
 			}
 
-			string cmd = args.Length > 0 ? args[0] : "flash_read";
 			bool usbOnly = (cmd == "fw_set_type" || cmd == "fw_info" || cmd == "mem_read");
 
 			AsmSataDevice? sata = null;
@@ -88,6 +96,12 @@ namespace AsmTool
 								Console.WriteLine($"Flash chip : {c.Name}");
 								Console.WriteLine($"JEDEC ID   : {c.Jedec0:X2} {c.Jedec1:X2} {c.Jedec2:X2}");
 								Console.WriteLine($"Capacity   : {c.CapacityKb} KB ({c.CapacityKb * 1024} bytes)");
+								try {
+									string? ver = sata.ReadFirmwareVersion(c.CapacityKb * 1024);
+									Console.WriteLine($"Firmware   : {(ver ?? "(version block not found)")}");
+								} catch (Exception ex) {
+									Console.Error.WriteLine($"Firmware   : (read error: {ex.Message})");
+								}
 								Console.WriteLine($"BAR0 base  : 0x{sata.BaseAddress:X8}");
 							}
 							break;
@@ -136,13 +150,34 @@ namespace AsmTool
 			}
 		}
 
+		static void RunRomVersion(string[] args) {
+			if (args.Length < 2) {
+				Console.Error.WriteLine("Usage: AsmTool rom_version <firmware.rom>");
+				return;
+			}
+			string file = args[1];
+			if (!File.Exists(file)) {
+				Console.Error.WriteLine($"File not found: {file}");
+				return;
+			}
+
+			byte[] data = File.ReadAllBytes(file);
+			string? ver = AsmSataFwVersion.Extract(data);
+			if (ver == null) {
+				Console.Error.WriteLine("Could not find the firmware version block (marker \"2116RAM\") in the ROM.");
+				return;
+			}
+			Console.WriteLine($"Firmware version: {ver}");
+		}
+
 		static void PrintUsage() {
 			Console.WriteLine("Usage:");
-			Console.WriteLine("  AsmTool [flash_read [out.bin]]   Dump the SPI flash firmware (SATA or USB)");
-			Console.WriteLine("  AsmTool flash_info               Show the detected SATA flash chip / capacity");
-			Console.WriteLine("  AsmTool fw_info <firmware.rom>   Inspect a USB firmware image");
+			Console.WriteLine("  AsmTool [flash_read [out.bin]]       Dump the SPI flash firmware (SATA or USB)");
+			Console.WriteLine("  AsmTool flash_info                   Show the SATA flash chip / capacity / firmware version");
+			Console.WriteLine("  AsmTool rom_version <firmware.rom>   Print the firmware version of a SATA ROM file (no driver needed)");
+			Console.WriteLine("  AsmTool fw_info <firmware.rom>       Inspect a USB firmware image");
 			Console.WriteLine("  AsmTool fw_set_type <rom> <2142|3142>  Patch the chip type of a USB firmware");
-			Console.WriteLine("  AsmTool mem_read                 Dump 128 KB of USB controller memory to mem.bin");
+			Console.WriteLine("  AsmTool mem_read                     Dump 128 KB of USB controller memory to mem.bin");
 		}
 	}
 }
