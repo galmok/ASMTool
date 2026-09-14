@@ -22,7 +22,7 @@ namespace AsmTool
 	}
 
 	/// <summary>
-	/// Table of SPI flash chips supported by the ASM116x, extracted from RomUpdWin.exe.
+	/// Table of SPI flash chips supported by the ASM116x, identified by their JEDEC ID.
 	/// </summary>
 	public static class AsmSataChipTable
 	{

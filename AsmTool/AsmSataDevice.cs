@@ -14,9 +14,8 @@ namespace AsmTool
 	/// <summary>
 	/// Firmware reader for ASMedia SATA controllers (ASM106x/ASM116x family, e.g. ASM1166).
 	///
-	/// The protocol is a faithful transcription of the SPI flash access sequences used by
-	/// ASMedia's own RomUpdWin.exe (ASM116xMPTool). The SPI controller is exposed through a
-	/// memory-mapped window (MapAsmIO) with the following registers relative to the window:
+	/// The SPI flash controller is accessed through a memory-mapped window
+	/// (MapAsmIO) with the following registers relative to the window:
 	///   +0xB00  SPI command/data port (DWORD)
 	///   +0xB04  SPI status/control  (bit1 pre-op, bit4 post-op, bit5 busy)
 	///   +0xB06  SPI grant           (bit0 request, bit1 granted)
@@ -41,8 +40,7 @@ namespace AsmTool
 
 		public const uint VID_ASMEDIA = 0x1B21;
 		/// <summary>
-		/// ASM116x SATA controller PIDs supported by ASMedia's own RomUpdWin.exe
-		/// (ASM116xMPTool device table @0x591B52).
+		/// ASM116x SATA controller PIDs supported for firmware reading.
 		/// </summary>
 		public static readonly uint[] SataPids = { 0x1062, 0x1064, 0x1164, 0x1165, 0x1166 };
 
@@ -154,14 +152,13 @@ namespace AsmTool
 		}
 
 		// ------------------------------------------------------------------
-		// Primitives (transcribed from RomUpdWin.exe)
+		// SPI primitives
 		// ------------------------------------------------------------------
 
 		/// <summary>
 		/// Waits for the device grant by walking the PCI capability list starting at
 		/// config offset 0x34 until a capability with ID 1 is found, then enables the
 		/// PCI command register (memory space + bus master).
-		/// (RomUpdWin.exe 0x40d2f0)
 		/// </summary>
 		private void WaitGrant() {
 			byte offset = io.PCI_Read_BYTE(bus, dev, func, 0x34);
@@ -190,7 +187,6 @@ namespace AsmTool
 
 		/// <summary>
 		/// Waits until the SPI status busy bit (bit5) is clear, with a timeout.
-		/// (RomUpdWin.exe 0x40d440)
 		/// </summary>
 		private bool WaitBusy() {
 			int start = Environment.TickCount;
@@ -208,7 +204,6 @@ namespace AsmTool
 
 		/// <summary>
 		/// Requests the SPI control grant (grant bit0 set, poll bit1), up to 3 attempts.
-		/// (RomUpdWin.exe 0x401d30)
 		/// </summary>
 		public bool RequestGrant() {
 			if (granted) {
@@ -249,7 +244,6 @@ namespace AsmTool
 
 		/// <summary>
 		/// Releases the SPI control grant and unmaps the window.
-		/// (RomUpdWin.exe 0x401e30)
 		/// </summary>
 		private void ReleaseGrant() {
 			WaitGrant();
@@ -261,7 +255,6 @@ namespace AsmTool
 
 		/// <summary>
 		/// Writes up to 4 bytes to the SPI data port.
-		/// (RomUpdWin.exe 0x40d570)
 		/// </summary>
 		private bool WriteBurst(byte[] data, int size) {
 			if (size > 4) {
@@ -286,7 +279,6 @@ namespace AsmTool
 
 		/// <summary>
 		/// Reads up to 4 bytes from the SPI data port.
-		/// (RomUpdWin.exe 0x40d4b0)
 		/// </summary>
 		private bool ReadBurst(byte[] buf, int size) {
 			if (size > 4) {
@@ -315,7 +307,6 @@ namespace AsmTool
 
 		/// <summary>
 		/// Reads the 3-byte JEDEC ID from the flash.
-		/// (RomUpdWin.exe 0x40d630)
 		/// </summary>
 		public byte[] ReadId() {
 			byte[] id = new byte[3];
@@ -359,7 +350,6 @@ namespace AsmTool
 
 		/// <summary>
 		/// Reads <paramref name="size"/> bytes of flash starting at <paramref name="offset"/>.
-		/// (RomUpdWin.exe 0x40e0a0)
 		/// </summary>
 		public void ReadRegion(uint offset, int size, byte[] buf) {
 			if (size == 0) {
@@ -404,7 +394,6 @@ namespace AsmTool
 		/// <summary>
 		/// Detects the SPI flash chip by reading its JEDEC ID (with the 0xAB fallback)
 		/// and looking it up in the known-chip table.
-		/// (RomUpdWin.exe 0x40e580)
 		/// </summary>
 		public AsmSataChip? DetectChip() {
 			byte[] id = ReadId();
@@ -486,8 +475,11 @@ namespace AsmTool
 		/// <summary>
 		/// Reads the SPI flash and returns the firmware version string (e.g.
 		/// "241025-0000-05"), or <c>null</c> when the version block is not present.
-		/// The flash is read in chunks and searched as it is read, so the read stops
-		/// as soon as the version block is located.
+		///
+		/// When the ROM has an ASMT header, the header's own offset pointer is used
+		/// so only two small reads are required. Otherwise the flash is read in
+		/// chunks and searched for the "2116RAM" marker, stopping as soon as the
+		/// version block is located.
 		/// </summary>
 		public string? ReadFirmwareVersion(int? sizeOverride = null) {
 			if (!opened) {
@@ -502,8 +494,23 @@ namespace AsmTool
 			int size = sizeOverride
 				?? (DetectChip()?.CapacityKb ?? AsmSataChipTable.UnknownCapacityKb) * 1024;
 
-			// Retain enough trailing bytes that the version block (version + anchor)
-			// cannot be split across a chunk boundary.
+			// Fast path: the ASMT header carries an authoritative offset to the
+			// version block, so only the header and the 6 version bytes are read.
+			if (size >= AsmSataFwVersion.AsmtMagicOffset + 4) {
+				byte[] head = new byte[AsmSataFwVersion.AsmtMagicOffset + 4];
+				ReadRegion(0, head.Length, head);
+				if (AsmSataFwVersion.TryAsmtHeader(head, head.Length, out uint versionBase)) {
+					long vstart = versionBase + AsmSataFwVersion.AsmtVersionDelta;
+					if (vstart + AsmSataFwVersion.VersionLen <= size) {
+						byte[] vb = new byte[AsmSataFwVersion.VersionLen];
+						ReadRegion((uint)vstart, vb.Length, vb);
+						return AsmSataFwVersion.Format(AsmSataFwVersion.ReadVersion(vb, 0));
+					}
+				}
+			}
+
+			// Fallback: retain enough trailing bytes that the version block
+			// (version + anchor) cannot be split across a chunk boundary.
 			int keep = AsmSataFwVersion.Anchor.Length + AsmSataFwVersion.VersionLen - 1;
 			byte[] tail = Array.Empty<byte>();
 			byte[] scratch = new byte[CHUNK_SIZE];
