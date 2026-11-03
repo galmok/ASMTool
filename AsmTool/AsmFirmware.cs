@@ -48,7 +48,7 @@ namespace AsmTool
 		}
 
 		public void SetChipType(AsmFirmwareChipType type) {
-			Span[0xBC] = (byte)type;
+			Span[FirmwareVersionOffset + 3] = (byte)type;
 			UpdateChecksum();
 		}
 
@@ -63,7 +63,7 @@ namespace AsmTool
 		}
 
 		private byte[] GetFirmwareVersion() {
-			var fwVer = stream.PerformAt(0xB9, () => {
+			var fwVer = stream.PerformAt(FirmwareVersionOffset, () => {
 				return stream.ReadBytes(6);
 			});
 			return fwVer;
@@ -92,7 +92,7 @@ namespace AsmTool
 		}
 
 		private string GetFirmwareName() {
-			var fwChipName = stream.PerformAt(0xB9 + 7, () => {
+			var fwChipName = stream.PerformAt(FirmwareVersionOffset + 7, () => {
 				return stream.ReadCString(Encoding.ASCII);
 			});
 			return fwChipName;
@@ -129,6 +129,12 @@ namespace AsmTool
 				);
 			}
 		}
+
+		// The version bytes sit at a fixed distance from the end of the RCFG header,
+		// not at a fixed file offset: 0xB9 with the usual 0x30-byte header, 0xC9 with a
+		// 0x40-byte one (some vendor images, images whose subsystem IDs were set with
+		// MPTool, and ASM3242 "2324A" images).
+		private int FirmwareVersionOffset => HeaderSize + 0x89;
 
 		private int HeaderChecksumOffset => HeaderSize;
 		private int BodyChecksumOffset => (int)(HeaderSize + BodyStartOffset + BodySize + 8);
